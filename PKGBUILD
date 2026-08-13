@@ -2,7 +2,7 @@
 
 pkgname=archcraft-i3wm
 pkgver=3.0
-pkgrel=8
+pkgrel=9
 pkgdesc="i3wm Configurations for Archcraft"
 arch=('any')
 url="https://github.com/archcraft-os/archcraft-i3wm"
@@ -12,6 +12,7 @@ depends=('i3-wm' 'i3status' 'hsetroot' 'xsettingsd'
 		'pastel' 'python-pywal'
 )
 optdepends=('alacritty: default terminal emulator'
+			'kitty: secondary terminal emulator'
 			'thunar: default file manager'
 			'geany: default text editor'
 			'firefox: default web browser'
@@ -42,18 +43,19 @@ package() {
 	local _wmdir="$pkgdir"/etc/skel/.config/i3
 	mkdir -p "$_wmdir"
 
-	# Copy i3wm config files
+	# Copy window manager configs
 	cp -r "$srcdir"/alacritty 		"$_wmdir"
 	cp -r "$srcdir"/config.d 		"$_wmdir"
 	cp -r "$srcdir"/i3status 		"$_wmdir"
-	cp -r "$srcdir"/kitty 		    "$_wmdir"
+	cp -r "$srcdir"/kitty 			"$_wmdir"
 	cp -r "$srcdir"/scripts 		"$_wmdir"
 	cp -r "$srcdir"/theme 			"$_wmdir"
 
+	# Make scripts executable
 	chmod +x "$_wmdir"/scripts/*
 	chmod +x "$_wmdir"/theme/polybar.sh
 	chmod +x "$_wmdir"/theme/polybar/launch.sh
-	chmod +x "$_wmdir"/theme/polybar/scripts/bluetooth.sh
+	chmod +x "$_wmdir"/theme/polybar/scripts/{bluetooth,spotify}.sh
 
 	install -Dm 644 config   		"$_wmdir"/config
 	install -Dm 644 dunstrc   		"$_wmdir"/dunstrc
