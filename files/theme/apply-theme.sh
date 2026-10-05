@@ -422,7 +422,7 @@ set \$i3_cl_col_in $GREEN_B
 set \$i3_cl_col_afoc $ACCENT
 set \$i3_cl_col_ifoc $BLUE_N
 set \$i3_cl_col_ufoc $BG_ALT
-set \$i3_cl_col_urgt $RED_N
+set \$i3_cl_col_urgt $MAGENTA_N
 set \$i3_cl_col_phol $BG
 EOF
 
@@ -471,6 +471,8 @@ if ! i3-msg reload >/dev/null 2>&1; then
 fi
 
 "$I3_CONFIG_DIR/scripts/i3_dunst" >/dev/null 2>&1 &
+# FIXME: Cria arquivos .system e .module quando chama a bar pelo script. Ou entao não está limpando os arquivos temporários quando chama esse script. Avaliar
+"$I3_CONFIG_DIR/scripts/i3_bar" >/dev/null 2>&1 &
 
 # ---------------------------------------------------------------------------
 # Resultado
