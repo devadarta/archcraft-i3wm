@@ -13,7 +13,7 @@ export XDG_CURRENT_DESKTOP='i3'
 # Kill already running process
 _ps=(xsettingsd ksuperkey)
 for _prs in "${_ps[@]}"; do
-	if [[ `pidof ${_prs}` ]]; then
+	if [[ $(pidof ${_prs}) ]]; then
 		killall -9 ${_prs}
 	fi
 done
@@ -22,7 +22,7 @@ done
 xsettingsd --config="$idir"/xsettingsd &
 
 # polkit agent
-if [[ ! `pidof xfce-polkit` ]]; then
+if [[ ! $(pidof xfce-polkit) ]]; then
 	/usr/lib/xfce-polkit/xfce-polkit &
 fi
 
@@ -46,7 +46,22 @@ hsetroot -cover "$idir"/theme/wallpaper
 "$idir"/scripts/i3_bar
 
 # Lauch compositor
-"$idir"/scripts/i3_comp
+# "$idir"/scripts/i3_comp
 
 # Start mpd
-exec mpd &
+# exec mpd &
+
+## -- Custom Start -- ##
+# Daemon greenclip TODO:
+
+# Numlock indicator
+numlockx &
+"$idir"/scripts/keyslock_notify &
+
+# Gammastep indicator TODO:
+
+# Autotiling TODO:
+#
+
+# Battery critical notifiction
+"$idir/"scripts/i3_battery &
