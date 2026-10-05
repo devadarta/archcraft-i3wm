@@ -9,5 +9,5 @@ RASI="$DIR/theme/rofi/launcher.rasi"
 # Run
 rofi \
     -show drun \
-	-kb-cancel Alt-F1 \
-	-theme ${RASI}
+    -kb-cancel Escape,Super+F1,Alt-F1 \
+    -theme ${RASI}
