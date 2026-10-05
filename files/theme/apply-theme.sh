@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 #
 # Uso:
-#   apply-theme.sh [PALeta]
+#   apply-theme.sh
+#   apply-theme.sh [PALETA]
 #   apply-theme.sh --list
 #   apply-theme.sh --help
 #
+# Sem argumentos:
+#   - mostra as paletas disponíveis
+#   - permite escolher uma paleta
+#   - permite sair sem alterar nada
+#
 # Com uma paleta:
-#   - aplica a paleta informada
-#   - atualiza theme/current
+#   - aplica diretamente a paleta informada
 #
-# Sem uma paleta:
-#   - lê theme/current
-#   - aplica a paleta armazenada
-#   - não altera theme/current
+# --list:
+#   - lista as paletas disponíveis
 #
+# --help:
+#   - mostra esta ajuda
+
 set -Eeuo pipefail
 
 # ---------------------------------------------------------------------------
@@ -36,14 +42,13 @@ warning() {
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 I3_CONFIG_DIR="$(dirname "$SCRIPT_DIR")"
 PALETTES_DIR="$SCRIPT_DIR/palettes"
-CURRENT_THEME="$SCRIPT_DIR/current"
 
 ROFI_COLORS="$SCRIPT_DIR/rofi/shared/colors.rasi"
 POLYBAR_COLORS="$SCRIPT_DIR/polybar/colors.ini"
 ALACRITTY_COLORS="$I3_CONFIG_DIR/alacritty/colors.toml"
 KITTY_COLORS="$I3_CONFIG_DIR/kitty/colors.conf"
 I3_COLORS="$I3_CONFIG_DIR/config.d/00-colors.conf"
-DUNST_CONFIG="$I3_CONFIG_DIR/dunstrc"
+DUNST_COLORS="$I3_CONFIG_DIR/dunstrc.d/colors.conf"
 
 # ---------------------------------------------------------------------------
 # Variáveis exigidas pelas paletas
@@ -113,6 +118,7 @@ create_temp_file() {
 usage() {
   cat <<EOF
 Uso:
+  $(basename "$0")
   $(basename "$0") [PALETA]
   $(basename "$0") --list
   $(basename "$0") --help
@@ -121,17 +127,16 @@ Opções:
   -l, --list       Lista as paletas disponíveis
   -h, --help       Mostra esta ajuda
 
-Com uma paleta:
-  Aplica a paleta informada e atualiza o tema atual.
+Sem argumentos:
+  Mostra as paletas disponíveis e permite escolher uma.
 
-Sem uma paleta:
-  Aplica a paleta definida em:
-    $CURRENT_THEME
+Com uma paleta:
+  Aplica diretamente a paleta informada.
 
 Exemplos:
+  $(basename "$0")
   $(basename "$0") gruvbox
   $(basename "$0") nord
-  $(basename "$0")
   $(basename "$0") --list
 EOF
 }
@@ -160,10 +165,66 @@ list_palettes() {
 }
 
 # ---------------------------------------------------------------------------
+# Escolha interativa da paleta
+# ---------------------------------------------------------------------------
+
+choose_palette() {
+  local palette_file
+  local palette_name
+  local palettes=()
+  local choice
+
+  [[ -t 0 ]] ||
+    error "nenhuma paleta foi informada e não existe um terminal interativo. Use: $(basename "$0") <paleta>"
+
+  while IFS= read -r palette_file; do
+    palette_name="$(basename "$palette_file" .sh)"
+    palettes+=("$palette_name")
+  done < <(
+    find "$PALETTES_DIR" \
+      -maxdepth 1 \
+      -type f \
+      -name '*.sh' \
+      -print |
+      sort
+  )
+
+  ((${#palettes[@]} > 0)) ||
+    error "nenhuma paleta encontrada em: $PALETTES_DIR"
+
+  printf 'Paletas disponíveis:\n'
+
+  for ((i = 0; i < ${#palettes[@]}; i++)); do
+    printf '  %d) %s\n' "$((i + 1))" "${palettes[i]}"
+  done
+
+  printf '\n  0) Sair\n\n'
+
+  while true; do
+    read -r -p "Escolha uma opção [0-${#palettes[@]}]: " choice
+
+    if [[ "$choice" == "0" ]]; then
+      printf 'Nenhuma alteração foi feita.\n'
+      exit 0
+    fi
+
+    if [[ "$choice" =~ ^[0-9]+$ ]] &&
+      ((choice >= 1 && choice <= ${#palettes[@]})); then
+      PALETTE="${palettes[choice - 1]}"
+      return 0
+    fi
+
+    printf 'Opção inválida. Escolha um número entre 0 e %d.\n\n' \
+      "${#palettes[@]}"
+  done
+}
+
+# ---------------------------------------------------------------------------
 # Argumentos
 # ---------------------------------------------------------------------------
 
-EXPLICIT_PALETTE=false
+[[ -d "$PALETTES_DIR" ]] ||
+  error "diretório de paletas não encontrado: $PALETTES_DIR"
 
 case "${1:-}" in
 -h | --help)
@@ -191,45 +252,34 @@ fi
 
 if (($# == 1)); then
   PALETTE="$1"
-  EXPLICIT_PALETTE=true
+
+  PALETTE_FILE="$PALETTES_DIR/$PALETTE.sh"
+
+  if [[ ! -f "$PALETTE_FILE" ]]; then
+    printf "Erro: paleta '%s' não encontrada.\n\n" "$PALETTE" >&2
+    choose_palette
+    PALETTE_FILE="$PALETTES_DIR/$PALETTE.sh"
+  fi
 else
-  [[ -f "$CURRENT_THEME" ]] ||
-    error "nenhuma paleta foi informada e o arquivo 'current' não existe. Use: $(basename "$0") <paleta>"
-
-  PALETTE="$(<"$CURRENT_THEME")"
-
-  [[ -n "$PALETTE" ]] ||
-    error "o arquivo 'current' está vazio. Use: $(basename "$0") <paleta>"
+  choose_palette
+  PALETTE_FILE="$PALETTES_DIR/$PALETTE.sh"
 fi
-
-# Remove espaços em branco acidentais.
-PALETTE="${PALETTE#"${PALETTE%%[![:space:]]*}"}"
-PALETTE="${PALETTE%"${PALETTE##*[![:space:]]}"}"
-
-[[ -n "$PALETTE" ]] ||
-  error "nome de paleta vazio"
-
-PALETTE_FILE="$PALETTES_DIR/$PALETTE.sh"
 
 # ---------------------------------------------------------------------------
 # Validação inicial
 # ---------------------------------------------------------------------------
 
-[[ -d "$PALETTES_DIR" ]] ||
-  error "diretório de paletas não encontrado: $PALETTES_DIR"
-
 [[ -f "$PALETTE_FILE" ]] ||
   error "paleta não encontrada: $PALETTE_FILE"
 
-[[ -f "$DUNST_CONFIG" ]] ||
-  error "arquivo do Dunst não encontrado: $DUNST_CONFIG"
-
 for required_dir in \
+  "$(dirname "$DUNST_COLORS")" \
   "$(dirname "$ROFI_COLORS")" \
   "$(dirname "$POLYBAR_COLORS")" \
   "$(dirname "$ALACRITTY_COLORS")" \
   "$(dirname "$KITTY_COLORS")" \
   "$(dirname "$I3_COLORS")"; do
+
   [[ -d "$required_dir" ]] ||
     error "diretório necessário não encontrado: $required_dir"
 done
@@ -344,7 +394,7 @@ foreground $FG
 selection_background $FG
 selection_foreground $BG
 cursor $FG
- 
+
 color0 $BG
 color8 $GRAY
 color1 $RED_N
@@ -376,72 +426,27 @@ set \$i3_cl_col_urgt $RED_N
 set \$i3_cl_col_phol $BG
 EOF
 
-# ---------------------------------------------------------------------------
-# Dunst
-# ---------------------------------------------------------------------------
+DUNST_TMP="$(create_temp_file "$DUNST_COLORS")"
 
-DUNST_TMP="$(create_temp_file "$DUNST_CONFIG")"
+cat >"$DUNST_TMP" <<EOF
+[urgency_low]
+  timeout = 2
+  background = "$BG"
+  foreground = "$FG"
+  frame_color = "$ACCENT"
 
-awk \
-  -v bg="$BG" \
-  -v fg="$FG" \
-  -v accent="$ACCENT" \
-  -v red="$RED_B" '
-    /^\[/ {
-        sec = $0
-        sub(/[ \t]+$/, "", sec)
-    }
+[urgency_normal]
+  timeout = 5
+  background = "$BG"
+  foreground = "$FG"
+  frame_color = "$ACCENT"
 
-    sec == "[urgency_low]" || sec == "[urgency_normal]" {
-        if ($0 ~ /^[ \t]*background[ \t]*=/) {
-            print "background = \"" bg "\""
-            next
-        }
-
-        if ($0 ~ /^[ \t]*foreground[ \t]*=/) {
-            print "foreground = \"" fg "\""
-            next
-        }
-
-        if ($0 ~ /^[ \t]*frame_color[ \t]*=/) {
-            print "frame_color = \"" accent "\""
-            next
-        }
-    }
-
-    sec == "[urgency_critical]" {
-        if ($0 ~ /^[ \t]*background[ \t]*=/) {
-            print "background = \"" bg "\""
-            next
-        }
-
-        if ($0 ~ /^[ \t]*foreground[ \t]*=/) {
-            print "foreground = \"" red "\""
-            next
-        }
-
-        if ($0 ~ /^[ \t]*frame_color[ \t]*=/) {
-            print "frame_color = \"" red "\""
-            next
-        }
-    }
-
-    { print }
-' "$DUNST_CONFIG" >"$DUNST_TMP"
-
-# ---------------------------------------------------------------------------
-# Atualiza "current" somente quando a paleta foi informada explicitamente.
-#
-# Também é feito de forma atômica.
-# ---------------------------------------------------------------------------
-
-CURRENT_TMP=""
-
-if [[ "$EXPLICIT_PALETTE" == true ]]; then
-  CURRENT_TMP="$(create_temp_file "$CURRENT_THEME")"
-
-  printf '%s\n' "$PALETTE" >"$CURRENT_TMP"
-fi
+[urgency_critical]
+  timeout = 0
+  background = "$BG"
+  foreground = "$RED_B"
+  frame_color = "$RED_B"
+EOF
 
 # ---------------------------------------------------------------------------
 # Aplicação
@@ -455,11 +460,7 @@ mv -f -- "$POLYBAR_TMP" "$POLYBAR_COLORS"
 mv -f -- "$ALACRITTY_TMP" "$ALACRITTY_COLORS"
 mv -f -- "$KITTY_TMP" "$KITTY_COLORS"
 mv -f -- "$I3_TMP" "$I3_COLORS"
-mv -f -- "$DUNST_TMP" "$DUNST_CONFIG"
-
-if [[ "$EXPLICIT_PALETTE" == true ]]; then
-  mv -f -- "$CURRENT_TMP" "$CURRENT_THEME"
-fi
+mv -f -- "$DUNST_TMP" "$DUNST_COLORS"
 
 # ---------------------------------------------------------------------------
 # Recarregar componentes
@@ -471,17 +472,8 @@ fi
 
 "$I3_CONFIG_DIR/scripts/i3_dunst" >/dev/null 2>&1 &
 
-# pkill -x dunst 2>/dev/null || true
-# if ! setsid dunst -conf "$DUNST_CONFIG" >/dev/null 2>&1 & then
-#   warning "não foi possível iniciar o Dunst"
-# fi
-
 # ---------------------------------------------------------------------------
 # Resultado
 # ---------------------------------------------------------------------------
 
-if [[ "$EXPLICIT_PALETTE" == true ]]; then
-  printf "Tema '%s' aplicado e definido como atual.\n" "$PALETTE"
-else
-  printf "Tema atual '%s' aplicado.\n" "$PALETTE"
-fi
+printf "Tema '%s' aplicado com sucesso.\n" "$PALETTE"
