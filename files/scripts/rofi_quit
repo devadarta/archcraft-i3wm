@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+## Copyright (C) 2020-2024 Aditya Shakya <adi1090x@gmail.com>
+
+# Import Current Theme
+DIR="$HOME/.config/i3"
+CNFR="$DIR/theme/rofi/confirm.rasi"
+
+# Options
+cnflayout=`cat ${CNFR} | grep 'USE_ICON' | cut -d'=' -f2`
+if [[ "$cnflayout" == 'NO' ]]; then
+	yes=' Yes'
+	no=' No'
+else
+	yes=''
+	no=''
+fi
+
+# Confirmation CMD
+confirm_cmd() {
+	rofi -dmenu \
+		-p 'Confirmation' \
+		-mesg 'Do you want to leave the i3?' \
+        -selected-row 1 \
+        -no-click-to-exit \
+		-theme ${CNFR}
+    #'Are you Sure?' \
+}
+
+# Ask for confirmation
+confirm_exit() {
+	echo -e "$yes\n$no" | confirm_cmd
+}
+
+# Confirm and execute
+confirm_run () {	
+	selected="$(confirm_exit)"
+	if [[ "$selected" == "$yes" ]]; then
+        ${1} && ${2} && ${3}
+    else
+        exit
+    fi	
+}
+
+confirm_run 'i3-msg exit'

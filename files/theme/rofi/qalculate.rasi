@@ -1,18 +1,6 @@
 /**
- * Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
+ * Copyright (C) 2020-2024 Aditya Shakya <adi1090x@gmail.com>
  **/
-
-/*****----- Configuration -----*****/
-configuration {
-	modi:                       "window";
-    show-icons:                 true;
-    display-drun:               " Apps";
-    display-run:                " Run";
-    display-filebrowser:        " Files";
-    display-window:             " Windows";
-	drun-display-format:        " {name}";
-	window-format:              " {c} · {t}";
-}
 
 /*****----- Global Properties -----*****/
 @import                          "shared/colors.rasi"
@@ -51,7 +39,7 @@ window {
     location:                    center;
     anchor:                      center;
     fullscreen:                  false;
-    width:                       600px;
+    width:                       800px;
     x-offset:                    0px;
     y-offset:                    0px;
 
@@ -85,7 +73,7 @@ mainbox {
     border-radius:               0px 0px 0px 0px;
     border-color:                @border-colour;
     background-color:            transparent;
-    children:                    [ "inputbar", "listview" ];
+    children:                    [ "inputbar", "message", "listview" ];
 }
 
 /*****----- Inputbar -----*****/
@@ -109,10 +97,10 @@ prompt {
 }
 textbox-prompt-colon {
     enabled:                     true;
-    padding:                     6px 10px;
+    padding:                     6px 9px;
     border-radius:               12px;
     expand:                      false;
-    str:                         "";
+    str:                         "";
     background-color:            @selected;
     text-color:                  @background;
 }
@@ -122,7 +110,7 @@ entry {
     background-color:            inherit;
     text-color:                  inherit;
     cursor:                      text;
-    placeholder:                 "Filter...";
+    placeholder:                 "Calculator and conversor ...";
     placeholder-color:           inherit;
 }
 num-filtered-rows {
@@ -153,8 +141,8 @@ case-indicator {
 /*****----- Listview -----*****/
 listview {
     enabled:                     true;
-    columns:                     1;
-    lines:                       8;
+    columns:                     2;
+    lines:                       7;
     cycle:                       true;
     dynamic:                     true;
     scrollbar:                   false;

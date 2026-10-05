@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+# =================================================
+# This script captures the screen using Flameshot
+# KNOW ISSUES: 
+# * xclip dont copy image to clipboard only the binary
+# =================================================
+
+# Folder where screenshots will be saved
+dir="$(xdg-user-dir PICTURES)/Screenshots"
+# Create the directory if not exists
+[[ ! -d "$dir" ]] && mkdir -p "$dir"
+file="$(date +%Y-%m-%d_%H-%M-%S).png"
+full_path="${dir}/${file}"
+notify_cmd='dunstify -u normal -h string:x-dunst-stack-tag:flameshot -i /usr/share/archcraft/icons/dunst/picture.png'
+
+# Notifies and display the image with viewnior
+notify_view() {
+  paplay /usr/share/sounds/freedesktop/stereo/screen-capture.oga &>/dev/null &
+  if [[ -e "$full_path" ]]; then
+    xclip -selection clipboard -t image/png -i "$full_path"
+    $notify_cmd "Captured successfully. $file"
+    # viewnior "$full_path" &
+  else
+    $notify_cmd "Error: Unable to capture the screen"
+  fi
+}
+
+countdown() {
+  for sec in $(seq "$1" -1 1); do
+    dunstify -t 1000 -h string:x-dunst-stack-tag:screenshottimer -i /usr/share/archcraft/icons/dunst/timer.png "Capture in: $sec"
+    sleep 1
+  done
+}
+
+shotnow() {
+  flameshot full -p "$full_path"
+  notify_view
+}
+
+shot5() {
+  countdown 5
+  sleep 1
+  flameshot full -p "$full_path"
+  notify_view
+}
+
+shot10() {
+  countdown 10
+  sleep 1
+  flameshot full -p "$full_path"
+  notify_view
+}
+
+# Active window
+shotwin() {
+  flameshot screen -p "$full_path"
+  notify_view
+}
+
+# Manual area selection
+shotarea() {
+  flameshot gui -p "$full_path"
+  # Check the exit code. 1 = aborted and 0 = success
+  if [ $? -eq 0 ]; then
+    notify_view
+  fi
+}
+
+# Main
+case "$1" in
+  --now) shotnow ;;
+  --in5) shot5 ;;
+  --in10) shot10 ;;
+  --win) shotwin ;;
+  --area) shotarea ;;
+  *)
+    echo -e "Usage: ./i3-screenshot-flameshot [--now --in5 --in10 --win --area]"
+    exit 1
+  ;;
+esac
+
+exit 0
