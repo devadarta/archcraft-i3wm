@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Estado anterior
+prev_caps=0
+prev_num=0
+
+while true; do
+    xset_output=$(xset q)
+
+    # Detecta estado atual do Caps Lock
+    caps=$(echo "$xset_output" | grep "Caps Lock:" | awk '{print $4}')
+    # Detecta estado atual do Num Lock
+    num=$(echo "$xset_output" | grep "Num Lock:" | awk '{print $8}')
+
+    if [ "$caps" = "on" ] && [ "$prev_caps" = "0" ]; then
+        dunstify -u low -h string:x-dunst-stack-tag:i3config " 󰬈 Caps Lock - enabled"
+        prev_caps=1
+    elif [ "$caps" = "off" ] && [ "$prev_caps" = "1" ]; then
+        dunstify -u low -h string:x-dunst-stack-tag:i3config " 󰯫 Caps Lock - disabled"
+        prev_caps=0
+    fi
+
+    if [ "$num" = "on" ] && [ "$prev_num" = "0" ]; then
+        dunstify -u low -h string:x-dunst-stack-tag:i3config " 󰎤 Num Lock - enabled"
+        prev_num=1
+    elif [ "$num" = "off" ] && [ "$prev_num" = "1" ]; then
+        dunstify -u low -h string:x-dunst-stack-tag:i3config " 󰎦 Num Lock - disabled"
+        prev_num=0
+    fi
+
+    sleep 0.9
+done

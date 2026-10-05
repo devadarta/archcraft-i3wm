@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+## Copyright (C) 2020-2024 Aditya Shakya <adi1090x@gmail.com>
+
+# Import Current Theme
+DIR="$HOME/.config/i3"
+RASI="$DIR/theme/rofi/qalculate.rasi"
+
+# Run
+#rofi \
+#	-kb-cancel Super+v,Alt-F1,Escape \
+#	-theme ${RASI} \
+#    -modi "clipboard:greenclip print" -show clipboard
+rofi \
+    -kb-cancel Super+Shift+c,Alt+F1,Escape \
+	-theme ${RASI} \
+    -show calc -modi calc -no-show-match -no-sort -automatic-save-to-history \
+    -calc-command "echo -n '{result}' | xclip -selection clipboard"

@@ -1,0 +1,12 @@
+#!/bin/bash
+
+notify_cmd='dunstify -u low -h string:x-dunst-stack-tag:stayawake'
+
+xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/presentation-mode -T
+PRESENTATION=$(xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/presentation-mode)
+
+if ($PRESENTATION = true); then
+  $notify_cmd "Stayawake actived"
+else
+  $notify_cmd "Stayawake deactived"
+fi

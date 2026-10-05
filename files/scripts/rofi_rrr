@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+
+# Import Current Theme
+DIR="$HOME/.config/i3"
+RASI="$DIR/theme/rofi/rrr.rasi"
+CNFR="$DIR/theme/rofi/confirm.rasi"
+
+opt_resize="󰩨 "
+opt_reload=" "
+opt_restart_i3=" "
+opt_restart_system=" "
+
+yes=''
+no=''
+
+rofi_cmd() {
+    rofi -dmenu \
+        -p "Action" \
+        -mesg "Resize/Reload/Restart(i3/system)" \
+        -markup-rows \
+        -theme ${RASI}
+}
+
+# Confirmation CMD
+confirm_cmd() {
+    rofi -dmenu \
+        -p 'Confirmation' \
+        -mesg 'Are you Sure?' \
+        -selected-row 1 \
+        -no-click-to-exit \
+        -theme ${CNFR}
+}
+
+# Ask for confirmation
+confirm_exit() {
+    echo -e "$yes\n$no" | confirm_cmd
+}
+
+# Confirm and execute
+confirm_run() {
+    selected="$(confirm_exit)"
+    if [[ "$selected" == "$yes" ]]; then
+        ${1} && ${2} && ${3}
+    else
+        exit
+    fi
+}
+
+# Execute Command
+run_cmd() {
+    if [[ "$1" == '--optResize' ]]; then
+        i3-msg mode "Resize"
+    elif [[ "$1" == '--optReload' ]]; then
+        i3-msg reload && dunstify -u low -h string:x-dunst-stack-tag:i3config 'Configuration Reloaded!'
+    elif [[ "$1" == '--optRei3' ]]; then
+        confirm_run 'i3-msg restart'
+    elif [[ "$1" == '--optReSys' ]]; then
+        confirm_run 'systemctl reboot'
+    fi
+}
+
+run_rofi() {
+    echo -e "$opt_reload\n$opt_resize\n$opt_restart_i3\n$opt_restart_system" | rofi_cmd
+}
+
+chosen="$(run_rofi)"
+case ${chosen} in
+$opt_resize)
+    run_cmd --optResize
+    ;;
+$opt_reload)
+    run_cmd --optReload
+    ;;
+$opt_restart_i3)
+    run_cmd --optRei3
+    ;;
+$opt_restart_system)
+    run_cmd --optReSys
+    ;;
+esac
