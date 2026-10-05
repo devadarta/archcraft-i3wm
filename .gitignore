@@ -3,3 +3,5 @@
 *.pkg.tar.zst
 cleanup.sh
 push.sh
+.system
+.module
