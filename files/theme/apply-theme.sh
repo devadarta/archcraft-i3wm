@@ -41,6 +41,7 @@ CURRENT_THEME="$SCRIPT_DIR/current"
 ROFI_COLORS="$SCRIPT_DIR/rofi/shared/colors.rasi"
 POLYBAR_COLORS="$SCRIPT_DIR/polybar/colors.ini"
 ALACRITTY_COLORS="$I3_CONFIG_DIR/alacritty/colors.toml"
+KITTY_COLORS="$I3_CONFIG_DIR/kitty/colors.conf"
 I3_COLORS="$I3_CONFIG_DIR/config.d/00-colors.conf"
 DUNST_CONFIG="$I3_CONFIG_DIR/dunstrc"
 
@@ -227,6 +228,7 @@ for required_dir in \
   "$(dirname "$ROFI_COLORS")" \
   "$(dirname "$POLYBAR_COLORS")" \
   "$(dirname "$ALACRITTY_COLORS")" \
+  "$(dirname "$KITTY_COLORS")" \
   "$(dirname "$I3_COLORS")"; do
   [[ -d "$required_dir" ]] ||
     error "diretório necessário não encontrado: $required_dir"
@@ -334,6 +336,33 @@ cyan    = "$CYAN_B"
 white   = "$WHITE_B"
 EOF
 
+KITTY_TMP="$(create_temp_file "$KITTY_COLORS")"
+
+cat >"$KITTY_TMP" <<EOF
+background $BG
+foreground $FG
+selection_background $FG
+selection_foreground $BG
+cursor $FG
+ 
+color0 $BG
+color8 $GRAY
+color1 $RED_N
+color9 $RED_B
+color2 $GREEN_N
+color10 $GREEN_B
+color3 $YELLOW_N
+color11 $YELLOW_B
+color4 $BLUE_N
+color12 $BLUE_B
+color5 $MAGENTA_N
+color13 $MAGENTA_B
+color6 $CYAN_N
+color14 $CYAN_B
+color7 $WHITE_N
+color15 $WHITE_B
+EOF
+
 I3_TMP="$(create_temp_file "$I3_COLORS")"
 
 cat >"$I3_TMP" <<EOF
@@ -424,6 +453,7 @@ fi
 mv -f -- "$ROFI_TMP" "$ROFI_COLORS"
 mv -f -- "$POLYBAR_TMP" "$POLYBAR_COLORS"
 mv -f -- "$ALACRITTY_TMP" "$ALACRITTY_COLORS"
+mv -f -- "$KITTY_TMP" "$KITTY_COLORS"
 mv -f -- "$I3_TMP" "$I3_COLORS"
 mv -f -- "$DUNST_TMP" "$DUNST_CONFIG"
 
@@ -439,17 +469,12 @@ if ! i3-msg reload >/dev/null 2>&1; then
   warning "não foi possível recarregar o i3"
 fi
 
-if [[ -x "$SCRIPT_DIR/polybar/launch.sh" ]]; then
-  "$SCRIPT_DIR/polybar/launch.sh" >/dev/null 2>&1 &
-else
-  warning "launch.sh do Polybar não encontrado ou não é executável"
-fi
+"$I3_CONFIG_DIR/scripts/i3_dunst" >/dev/null 2>&1 &
 
-pkill -x dunst 2>/dev/null || true
-
-if ! setsid dunst -conf "$DUNST_CONFIG" >/dev/null 2>&1 & then
-  warning "não foi possível iniciar o Dunst"
-fi
+# pkill -x dunst 2>/dev/null || true
+# if ! setsid dunst -conf "$DUNST_CONFIG" >/dev/null 2>&1 & then
+#   warning "não foi possível iniciar o Dunst"
+# fi
 
 # ---------------------------------------------------------------------------
 # Resultado
