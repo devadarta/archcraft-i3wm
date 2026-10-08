@@ -1,0 +1,630 @@
+#!/usr/bin/env bash
+#
+# apply-theme.sh - aplica uma paleta de cores ao i3, polybar, rofi, dunst,
+# alacritty e kitty. Use --help para ver as opções.
+
+set -Eeuo pipefail
+
+# ---------------------------------------------------------------------------
+# Diretórios e arquivos
+# ---------------------------------------------------------------------------
+
+SCRIPT_NAME="$(basename "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+I3_CONFIG_DIR="$(dirname "$SCRIPT_DIR")"
+PALETTES_DIR="$I3_CONFIG_DIR/theme/palettes"
+
+ROFI_COLORS="$I3_CONFIG_DIR/theme/rofi/shared/colors.rasi"
+POLYBAR_COLORS="$I3_CONFIG_DIR/theme/polybar/colors.ini"
+ALACRITTY_COLORS="$I3_CONFIG_DIR/alacritty/colors.toml"
+KITTY_COLORS="$I3_CONFIG_DIR/kitty/colors.conf"
+I3_COLORS="$I3_CONFIG_DIR/config.d/00-colors.conf"
+DUNST_COLORS="$I3_CONFIG_DIR/dunstrc.d/colors.conf"
+CURRENT_PALETTE="$SCRIPT_DIR/polybar/scripts/palette.sh"
+
+TARGET_FILES=(
+  "$ROFI_COLORS"
+  "$POLYBAR_COLORS"
+  "$ALACRITTY_COLORS"
+  "$KITTY_COLORS"
+  "$I3_COLORS"
+  "$DUNST_COLORS"
+  "$CURRENT_PALETTE"
+)
+
+LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/apply-theme.lock"
+
+# ---------------------------------------------------------------------------
+# Variáveis exigidas pelas paletas
+# ---------------------------------------------------------------------------
+
+REQUIRED_VARS=(
+  BG BG_ALT FG FG_ALT ACCENT
+  RED_N GREEN_N YELLOW_N BLUE_N MAGENTA_N CYAN_N WHITE_N
+  RED_B GREEN_B YELLOW_B BLUE_B MAGENTA_B CYAN_B WHITE_B
+  GRAY
+)
+
+# ---------------------------------------------------------------------------
+# Cores e mensagens
+#
+# Regra: só o símbolo é colorido. O texto fica na cor padrão do terminal.
+# Avisos e erros vão para o stderr; o resto para o stdout.
+# Respeita NO_COLOR e desativa as cores quando a saída não é um terminal.
+# ---------------------------------------------------------------------------
+
+BOLD='' DIM='' GREEN='' CYAN='' RESET=''
+E_RED='' E_YELLOW='' E_RESET=''
+
+if [[ -z "${NO_COLOR:-}" && "${TERM:-}" != dumb ]]; then
+  if [[ -t 1 ]]; then
+    BOLD=$'\033[1m'
+    DIM=$'\033[2m'
+    GREEN=$'\033[32m'
+    CYAN=$'\033[36m'
+    RESET=$'\033[0m'
+  fi
+  if [[ -t 2 ]]; then
+    E_RED=$'\033[31m'
+    E_YELLOW=$'\033[33m'
+    E_RESET=$'\033[0m'
+  fi
+fi
+
+ok() { printf '%s✓%s %s\n' "$GREEN" "$RESET" "$*"; }
+info() { printf '%s→%s %s\n' "$CYAN" "$RESET" "$*"; }
+warn() { printf '%s!%s %s\n' "$E_YELLOW" "$E_RESET" "$*" >&2; }
+error() {
+  printf '%s✗%s %s\n' "$E_RED" "$E_RESET" "$*" >&2
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Estado, limpeza e reversão
+# ---------------------------------------------------------------------------
+
+PALETTE=''
+PALETTE_FILE=''
+PALETTES=()
+
+TMP_FILES=()      # temporários criados por este script
+STAGED_TARGETS=() # destinos, na ordem em que serão gravados
+STAGED_TMPS=()    # temporário correspondente a cada destino
+BACKUP_DIR=''     # cópia dos arquivos originais, usada na reversão
+KEEP_BACKUP=0
+APPLYING=0 # 1 enquanto os mv estão em andamento
+APPLIED=0  # quantos destinos já foram (ou estão sendo) gravados
+
+# Restaura os $1 primeiros destinos a partir do backup. Arquivos que não
+# existiam antes são removidos. Devolve 1 se algum item não puder ser revertido.
+rollback() {
+  local count="$1" i target tmp failed=0
+
+  for ((i = count - 1; i >= 0; i--)); do
+    target="${STAGED_TARGETS[i]}"
+
+    if [[ -e "$BACKUP_DIR/$i" ]]; then
+      if tmp="$(mktemp "$(dirname "$target")/.theme.XXXXXX")"; then
+        TMP_FILES+=("$tmp")
+        cp -p -- "$BACKUP_DIR/$i" "$tmp" &&
+          mv -f -- "$tmp" "$target" || failed=1
+      else
+        failed=1
+      fi
+    else
+      rm -f -- "$target" || failed=1
+    fi
+  done
+
+  return "$failed"
+}
+
+cleanup() {
+  # Interrompido (erro, Ctrl-C, kill) no meio dos mv: desfaz o que já foi feito.
+  if ((APPLYING)); then
+    APPLYING=0
+    warn "interrompido durante a aplicação; revertendo os arquivos já gravados"
+
+    if ! rollback "$APPLIED"; then
+      KEEP_BACKUP=1
+      warn "reversão incompleta; os originais continuam em: $BACKUP_DIR"
+    fi
+  fi
+
+  if ((${#TMP_FILES[@]} > 0)); then
+    rm -f -- "${TMP_FILES[@]}"
+  fi
+
+  if [[ -n "$BACKUP_DIR" ]] && ((!KEEP_BACKUP)); then
+    rm -rf -- "$BACKUP_DIR"
+  fi
+}
+
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 141' PIPE
+trap 'warn "erro inesperado na linha $LINENO"' ERR
+
+# Permissão padrão para arquivos novos, respeitando o umask (ex.: 644).
+default_mode() {
+  printf '%03o' "$((0666 & ~$(umask)))"
+}
+
+# Grava o stdin em um temporário no MESMO diretório do destino (necessário para
+# o mv ser atômico) e registra o par destino/temporário.
+#   stage <destino> [modo-se-novo]
+#
+# Se o destino já existe, copia a permissão dele. Se não existe, usa o modo
+# informado ou o padrão do umask (o mktemp cria o arquivo com 600).
+# Deve ser chamada diretamente (sem pipe), para o registro ficar no shell atual.
+stage() {
+  local target="$1"
+  local new_mode="${2:-$(default_mode)}"
+  local tmp
+
+  tmp="$(mktemp "$(dirname "$target")/.theme.XXXXXX")"
+  TMP_FILES+=("$tmp")
+
+  cat >"$tmp"
+
+  if [[ -e "$target" ]]; then
+    chmod --reference="$target" "$tmp"
+  else
+    chmod "$new_mode" "$tmp"
+  fi
+
+  STAGED_TARGETS+=("$target")
+  STAGED_TMPS+=("$tmp")
+}
+
+# Remove sobras de execuções anteriores que foram mortas sem chance de limpar
+# (SIGKILL, queda de energia). Só roda com o lock adquirido.
+remove_orphan_temps() {
+  local target dir file removed=0
+
+  for target in "${TARGET_FILES[@]}"; do
+    dir="$(dirname "$target")"
+
+    while IFS= read -r -d '' file; do
+      rm -f -- "$file"
+      removed=$((removed + 1))
+    done < <(find "$dir" -maxdepth 1 -type f -name '.theme.??????' -print0)
+  done
+
+  if ((removed > 0)); then
+    warn "removidos $removed temporário(s) órfão(s) de execuções anteriores"
+  fi
+}
+
+# Grava todos os temporários nos destinos. Antes disso faz backup dos originais;
+# se qualquer mv falhar (ou o script for interrompido), tudo é revertido.
+apply_staged() {
+  local i
+
+  BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/apply-theme-backup.XXXXXX")"
+
+  for i in "${!STAGED_TARGETS[@]}"; do
+    if [[ -e "${STAGED_TARGETS[i]}" ]]; then
+      cp -p -- "${STAGED_TARGETS[i]}" "$BACKUP_DIR/$i"
+    fi
+  done
+
+  APPLYING=1
+
+  for i in "${!STAGED_TARGETS[@]}"; do
+    APPLIED=$((i + 1))
+    mv -f -- "${STAGED_TMPS[i]}" "${STAGED_TARGETS[i]}" ||
+      error "falha ao gravar: ${STAGED_TARGETS[i]}"
+  done
+
+  APPLYING=0
+}
+
+# ---------------------------------------------------------------------------
+# Ajuda
+# ---------------------------------------------------------------------------
+
+usage() {
+  cat <<EOF
+Uso:
+  $SCRIPT_NAME [PALETA]
+  $SCRIPT_NAME --list
+  $SCRIPT_NAME --help
+
+Opções:
+  -l, --list       Lista as paletas disponíveis
+  -h, --help       Mostra esta ajuda
+
+Sem argumentos, mostra um menu para escolher a paleta (ou sair sem alterar
+nada). Com uma paleta, aplica-a diretamente.
+
+Exemplos:
+  $SCRIPT_NAME
+  $SCRIPT_NAME gruvbox
+  $SCRIPT_NAME --list
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Paletas
+# ---------------------------------------------------------------------------
+
+# Preenche o array PALETTES com os nomes (sem .sh), em ordem alfabética.
+load_palettes() {
+  local file name
+
+  PALETTES=()
+
+  shopt -s nullglob
+  for file in "$PALETTES_DIR"/*.sh; do
+    name="${file##*/}"
+    PALETTES+=("${name%.sh}")
+  done
+  shopt -u nullglob
+}
+
+# Nome da paleta atualmente aplicada (vazio se desconhecida).
+current_palette() {
+  [[ -f "$CURRENT_PALETTE" ]] || return 0
+  bash "$CURRENT_PALETTE" 2>/dev/null | head -n 1 || true
+}
+
+# Mostra uma amostra de cores da paleta, se o terminal suportar truecolor.
+palette_swatches() {
+  local file="$PALETTES_DIR/$1.sh"
+
+  [[ -t 1 && -z "${NO_COLOR:-}" ]] || return 0
+  case "${COLORTERM:-}" in
+  truecolor | 24bit) ;;
+  *) return 0 ;;
+  esac
+
+  printf '  '
+
+  # Subshell: o source da paleta não pode poluir as variáveis do script.
+  (
+    local var hex
+    # shellcheck disable=SC1090
+    source "$file" >/dev/null 2>&1 || exit 0
+
+    for var in RED_N GREEN_N YELLOW_N BLUE_N MAGENTA_N CYAN_N ACCENT; do
+      hex="${!var:-}"
+      hex="${hex#\#}"
+      [[ "$hex" =~ ^[0-9a-fA-F]{6}$ ]] || continue
+      printf '\033[48;2;%d;%d;%dm  \033[0m' \
+        "$((16#${hex:0:2}))" "$((16#${hex:2:2}))" "$((16#${hex:4:2}))"
+    done
+  ) 2>/dev/null || true
+}
+
+list_palettes() {
+  local name current
+
+  load_palettes
+  ((${#PALETTES[@]} > 0)) ||
+    error "nenhuma paleta encontrada em: $PALETTES_DIR"
+
+  current="$(current_palette)"
+
+  printf '%sPaletas disponíveis%s\n' "$BOLD" "$RESET"
+
+  for name in "${PALETTES[@]}"; do
+    if [[ "$name" == "$current" ]]; then
+      printf '  %s %s(atual)%s\n' "$name" "$DIM" "$RESET"
+    else
+      printf '  %s\n' "$name"
+    fi
+  done
+}
+
+choose_palette() {
+  local i name current choice width=0
+
+  [[ -t 0 ]] ||
+    error "nenhuma paleta informada e não há terminal interativo. Use: $SCRIPT_NAME <paleta>"
+
+  load_palettes
+  ((${#PALETTES[@]} > 0)) ||
+    error "nenhuma paleta encontrada em: $PALETTES_DIR"
+
+  current="$(current_palette)"
+
+  for name in "${PALETTES[@]}"; do
+    if ((${#name} > width)); then
+      width=${#name}
+    fi
+  done
+
+  printf '\n  %sEscolha uma paleta%s\n\n' "$BOLD" "$RESET"
+
+  for i in "${!PALETTES[@]}"; do
+    name="${PALETTES[i]}"
+
+    printf '  %s%2d%s  %-*s' "$CYAN" "$((i + 1))" "$RESET" "$width" "$name"
+    palette_swatches "$name"
+
+    if [[ "$name" == "$current" ]]; then
+      printf '  %s(atual)%s' "$DIM" "$RESET"
+    fi
+
+    printf '\n'
+  done
+
+  printf '\n  %s%2d%s  Sair sem alterar nada\n\n' "$CYAN" 0 "$RESET"
+
+  while true; do
+    read -r -p "  Opção [0-${#PALETTES[@]}]: " choice || {
+      printf '\n'
+      info "Nenhuma alteração foi feita."
+      exit 0
+    }
+
+    case "$choice" in
+    0 | q | Q)
+      info "Nenhuma alteração foi feita."
+      exit 0
+      ;;
+    esac
+
+    if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#PALETTES[@]})); then
+      PALETTE="${PALETTES[choice - 1]}"
+      printf '\n'
+      return 0
+    fi
+
+    warn "opção inválida: digite um número entre 0 e ${#PALETTES[@]}"
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Argumentos
+# ---------------------------------------------------------------------------
+
+case "${1:-}" in
+-h | --help)
+  usage
+  exit 0
+  ;;
+-l | --list)
+  [[ -d "$PALETTES_DIR" ]] ||
+    error "diretório de paletas não encontrado: $PALETTES_DIR"
+  list_palettes
+  exit 0
+  ;;
+--)
+  shift
+  ;;
+-*)
+  error "opção desconhecida: $1 (use --help)"
+  ;;
+esac
+
+(($# <= 1)) || error "apenas uma paleta pode ser informada"
+
+[[ -d "$PALETTES_DIR" ]] ||
+  error "diretório de paletas não encontrado: $PALETTES_DIR"
+
+PALETTE="${1:-}"
+
+if [[ -n "$PALETTE" && ! -f "$PALETTES_DIR/$PALETTE.sh" ]]; then
+  warn "paleta '$PALETTE' não encontrada"
+  PALETTE=''
+fi
+
+if [[ -z "$PALETTE" ]]; then
+  choose_palette
+fi
+
+PALETTE_FILE="$PALETTES_DIR/$PALETTE.sh"
+
+# ---------------------------------------------------------------------------
+# Validação inicial
+# ---------------------------------------------------------------------------
+
+for target in "${TARGET_FILES[@]}"; do
+  [[ -d "$(dirname "$target")" ]] ||
+    error "diretório necessário não encontrado: $(dirname "$target")"
+done
+
+# shellcheck disable=SC1090
+source "$PALETTE_FILE"
+
+# Valida todas as variáveis antes de modificar qualquer arquivo.
+missing_vars=()
+
+for variable in "${REQUIRED_VARS[@]}"; do
+  if [[ -z "${!variable:-}" ]]; then
+    missing_vars+=("$variable")
+  fi
+done
+
+if ((${#missing_vars[@]} > 0)); then
+  error "a paleta '$PALETTE' não define: ${missing_vars[*]}"
+fi
+
+# ---------------------------------------------------------------------------
+# Lock (evita duas execuções simultâneas) e limpeza de sobras antigas
+# ---------------------------------------------------------------------------
+
+# O lock pertence ao descritor 9 e some quando TODOS os processos que o
+# herdaram o fecham. Por isso o fd 9 é fechado (9>&-) nos comandos que podem
+# deixar processos vivos (ex.: i3-msg restart), senão o lock "vaza" para eles.
+if command -v flock >/dev/null 2>&1; then
+  exec 9<>"$LOCK_FILE"
+
+  if ! flock -n 9; then
+    holder="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+
+    if [[ "$holder" =~ ^[0-9]+$ ]] && kill -0 "$holder" 2>/dev/null; then
+      error "outra instância de $SCRIPT_NAME já está em execução (PID $holder)"
+    fi
+
+    error "lock preso por outro processo (PID $holder já terminou). Veja quem o segura: fuser -v $LOCK_FILE"
+  fi
+
+  printf '%s\n' "$$" >"$LOCK_FILE"
+fi
+
+remove_orphan_temps
+
+# ---------------------------------------------------------------------------
+# Geração dos arquivos (temporários)
+# ---------------------------------------------------------------------------
+
+stage "$ROFI_COLORS" <<EOF
+// "$PALETTE"
+* {
+    background:     $BG;
+    background-alt: $BG_ALT;
+    foreground:     $FG;
+    selected:       $ACCENT;
+    active:         $GREEN_B;
+    urgent:         $RED_B;
+}
+EOF
+
+stage "$POLYBAR_COLORS" <<EOF
+# "$PALETTE"
+[color]
+
+BACKGROUND = $BG
+FOREGROUND = $FG
+ALTBACKGROUND = $BG_ALT
+ALTFOREGROUND = $FG_ALT
+ACCENT = $ACCENT
+
+BLACK = $BG
+RED = $RED_B
+GREEN = $GREEN_B
+YELLOW = $YELLOW_B
+BLUE = $BLUE_B
+MAGENTA = $MAGENTA_B
+CYAN = $CYAN_B
+WHITE = $WHITE_N
+ALTBLACK = $GRAY
+ALTRED = $RED_B
+ALTGREEN = $GREEN_B
+ALTYELLOW = $YELLOW_B
+ALTBLUE = $BLUE_B
+ALTMAGENTA = $MAGENTA_B
+ALTCYAN = $CYAN_B
+ALTWHITE = $FG
+EOF
+
+stage "$ALACRITTY_COLORS" <<EOF
+# "$PALETTE"
+[colors.primary]
+background = "$BG"
+foreground = "$FG"
+
+[colors.normal]
+black   = "$BG"
+red     = "$RED_N"
+green   = "$GREEN_N"
+yellow  = "$YELLOW_N"
+blue    = "$BLUE_N"
+magenta = "$MAGENTA_N"
+cyan    = "$CYAN_N"
+white   = "$WHITE_N"
+
+[colors.bright]
+black   = "$GRAY"
+red     = "$RED_B"
+green   = "$GREEN_B"
+yellow  = "$YELLOW_B"
+blue    = "$BLUE_B"
+magenta = "$MAGENTA_B"
+cyan    = "$CYAN_B"
+white   = "$WHITE_B"
+EOF
+
+stage "$KITTY_COLORS" <<EOF
+# "$PALETTE"
+background $BG
+foreground $FG
+selection_background $FG
+selection_foreground $BG
+cursor $FG
+
+color0 $BG
+color8 $GRAY
+color1 $RED_N
+color9 $RED_B
+color2 $GREEN_N
+color10 $GREEN_B
+color3 $YELLOW_N
+color11 $YELLOW_B
+color4 $BLUE_N
+color12 $BLUE_B
+color5 $MAGENTA_N
+color13 $MAGENTA_B
+color6 $CYAN_N
+color14 $CYAN_B
+color7 $WHITE_N
+color15 $WHITE_B
+EOF
+
+stage "$I3_COLORS" <<EOF
+# "$PALETTE"
+set \$i3_cl_col_bg $BG
+set \$i3_cl_col_fg $FG
+set \$i3_cl_col_in $GREEN_B
+set \$i3_cl_col_afoc $ACCENT
+set \$i3_cl_col_ifoc $BLUE_N
+set \$i3_cl_col_ufoc $BG_ALT
+set \$i3_cl_col_urgt $MAGENTA_N
+set \$i3_cl_col_phol $BG
+EOF
+
+stage "$DUNST_COLORS" <<EOF
+# "$PALETTE"
+[urgency_low]
+  timeout = 2
+  background = "$BG"
+  foreground = "$FG"
+  frame_color = "$ACCENT"
+
+[urgency_normal]
+  timeout = 5
+  background = "$BG"
+  foreground = "$FG"
+  frame_color = "$ACCENT"
+
+[urgency_critical]
+  timeout = 0
+  background = "$BG"
+  foreground = "$RED_B"
+  frame_color = "$RED_B"
+EOF
+
+# Script lido pela polybar para saber a paleta atual (precisa ser executável).
+stage "$CURRENT_PALETTE" 755 <<EOF
+#!/usr/bin/env bash
+echo $(printf '%q' "$PALETTE")
+EOF
+
+# ---------------------------------------------------------------------------
+# Aplicação (com backup e reversão automática)
+# ---------------------------------------------------------------------------
+
+apply_staged
+
+ok "Tema ${BOLD}${PALETTE}${RESET} aplicado"
+
+# ---------------------------------------------------------------------------
+# Recarregar componentes
+# ---------------------------------------------------------------------------
+
+# "$I3_CONFIG_DIR/scripts/i3_dunst" >/dev/null 2>&1 &
+
+# if i3-msg reload >/dev/null 2>&1; then
+if i3-msg restart >/dev/null 2>&1 9>&-; then
+  info "i3 reiniciado"
+else
+  warn "não foi possível reiniciar o i3 (ele está em execução?)"
+  info "Rode 'i3-msg restart' ou faça logoff para aplicar o tema."
+fi
+# "$I3_CONFIG_DIR/scripts/i3_bar" >/dev/null 2>&1 &
+dunstify "Paleta aplicada"

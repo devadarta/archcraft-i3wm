@@ -1,27 +1,25 @@
-## Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
-##
-## Colors configuration -------------------------------------
-
+# "everforest"
+# Theme/Palette: "/home/danielp/Projects/archcraft-i3wm/files/theme/palettes/everforest.sh"
 [colors.primary]
-background = "#1e222a"
-foreground = "#c8ccd4"
+background = "#2d353b"
+foreground = "#d3c6aa"
 
 [colors.normal]
-black   = "#1e222a"
-red     = "#e06c75"
-green   = "#98c379"
-yellow  = "#e5c07b"
-blue    = "#61afef"
-magenta = "#c678dd"
-cyan    = "#56b6c2"
-white   = "#abb2bf"
+black   = "#2d353b"
+red     = "#e67e80"
+green   = "#a7c080"
+yellow  = "#dbbc7f"
+blue    = "#7fbbb3"
+magenta = "#d699b6"
+cyan    = "#83c092"
+white   = "#d3c6aa"
 
 [colors.bright]
-black   = "#545862"
-red     = "#e06c75"
-green   = "#98c379"
-yellow  = "#e5c07b"
-blue    = "#61afef"
-magenta = "#c678dd"
-cyan    = "#56b6c2"
-white   = "#c8ccd4"
+black   = "#7a8478"
+red     = "#e67e80"
+green   = "#a7c080"
+yellow  = "#dbbc7f"
+blue    = "#7fbbb3"
+magenta = "#d699b6"
+cyan    = "#83c092"
+white   = "#d3c6aa"

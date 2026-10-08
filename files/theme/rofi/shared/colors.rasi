@@ -1,12 +1,9 @@
-/* Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com> */
-
-/* Colors */
-
+// "everforest"
 * {
-    background:     #1e222a;
-    background-alt: #292e39;
-    foreground:     #c8ccd4;
-    selected:       #da6e89;
-    active:         #98c379;
-    urgent:         #e06c75;
+    background:     #2d353b;
+    background-alt: #343f44;
+    foreground:     #d3c6aa;
+    selected:       #e69875;
+    active:         #a7c080;
+    urgent:         #e67e80;
 }
