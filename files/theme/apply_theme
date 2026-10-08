@@ -515,7 +515,6 @@ EOF
 
 stage "$ALACRITTY_COLORS" <<EOF
 # "$PALETTE"
-# Theme/Palette: "$PALETTE_FILE"
 [colors.primary]
 background = "$BG"
 foreground = "$FG"
