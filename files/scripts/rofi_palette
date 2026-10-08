@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# ---------------------------------------------------------------------------
+# Caminhos
+# ---------------------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+I3_CONFIG_DIR="$(dirname "$SCRIPT_DIR")"
+THEME_DIR="$I3_CONFIG_DIR/theme"
+
+PALETTES_DIR="$THEME_DIR/palettes"
+APPLY_THEME="$THEME_DIR/apply_theme" # ajuste aqui se o nome for outro
+ROFI_THEME="$THEME_DIR/rofi/palettes.rasi"
+# CURRENT_PALETTE="$THEME_DIR/polybar/scripts/palette.sh"
+
+# ---------------------------------------------------------------------------
+# Erros
+#
+# Chamado por atalho do i3 não há terminal, então erros viram notificação.
+# ---------------------------------------------------------------------------
+
+notify() { # notify <urgência> <título> <mensagem>
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send -u "$1" "$2" "$3" || true
+  fi
+  printf '%s: %s\n' "$2" "$3" >&2
+}
+
+die() {
+  notify critical "Temas" "$1"
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Paletas
+# ---------------------------------------------------------------------------
+
+palettes=()
+
+shopt -s nullglob
+for file in "$PALETTES_DIR"/*.sh; do
+  name="${file##*/}"
+  palettes+=("${name%.sh}")
+done
+shopt -u nullglob
+
+((${#palettes[@]} > 0)) || die "nenhuma paleta encontrada em: $PALETTES_DIR"
+
+# current=''
+# if [[ -f "$CURRENT_PALETTE" ]]; then
+#   current="$(bash "$CURRENT_PALETTE" 2>/dev/null | head -n 1 || true)"
+# fi
+
+# ---------------------------------------------------------------------------
+# Menu
+#
+# -format i  devolve o índice da linha escolhida (não o texto)
+# -no-custom ignora texto digitado que não esteja na lista
+# -a / -selected-row  marcam a paleta atual como "ativa" e já a deixam selecionada
+# ---------------------------------------------------------------------------
+
+rofi_args=(-dmenu -i -no-custom -format i -p "Tema" -theme "$ROFI_THEME")
+
+# for i in "${!palettes[@]}"; do
+#   if [[ "${palettes[i]}" == "$current" ]]; then
+#     rofi_args+=(-a "$i" -selected-row "$i")
+#     break
+#   fi
+# done
+
+index="$(printf '%s\n' "${palettes[@]}" | rofi "${rofi_args[@]}")" || exit 0
+
+[[ "$index" =~ ^[0-9]+$ ]] && ((index < ${#palettes[@]})) || exit 0
+
+name="${palettes[index]}"
+
+# ---------------------------------------------------------------------------
+# Aplicação
+# ---------------------------------------------------------------------------
+if ! output="$("$APPLY_THEME" "$name" 2>&1)"; then
+  dunstify -u normal -h string:x-dunst-stack-tag:i3config "Falha ao aplicar o tema '$name'" "$(tail -n 3 <<<"$output")"
+  # notify hight "Falha ao aplicar o tema '$name'" "$(tail -n 3 <<<"$output")"
+  exit 1
+fi
